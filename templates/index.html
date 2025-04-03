@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YouTube Trend Analyzer</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.2.3/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.3.0/css/all.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+</head>
+<body>
+    <div class="container my-4">
+        <header class="text-center mb-4">
+            <h1 class="display-4">
+                <i class="fab fa-youtube text-danger"></i> YouTube Trend Analyzer
+            </h1>
+            <p class="lead">Автоматичний аналіз трендів та генерація ідей для YouTube відео</p>
+        </header>
+
+        <div class="row">
+            <!-- Ліва колонка: форма запиту -->
+            <div class="col-md-4">
+                <div class="card shadow-sm mb-4">
+                    <div class="card-header bg-primary text-white">
+                        <h5 class="mb-0">Параметри аналізу</h5>
+                    </div>
+                    <div class="card-body">
+                        <form id="analyze-form">
+                            <div class="mb-3">
+                                <label for="trend-select" class="form-label">Оберіть тренд</label>
+                                <select id="trend-select" class="form-select mb-2">
+                                    <option value="" selected>-- Завантаження трендів... --</option>
+                                </select>
+                                <div class="text-end">
+                                    <button type="button" id="refresh-trends" class="btn btn-sm btn-outline-secondary">
+                                        <i class="fas fa-sync-alt"></i> Оновити
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div class="mb-3">
+                                <label for="custom-keyword" class="form-label">Або введіть власне ключове слово</label>
+                                <input type="text" id="custom-keyword" class="form-control" placeholder="Наприклад: штучний інтелект">
+                            </div>
+
+                            <div class="mb-3">
+                                <label for="category" class="form-label">Категорія (опційно)</label>
+                                <select id="category" class="form-select">
+                                    <option value="" selected>-- Без категорії --</option>
+                                    <option value="Освіта">Освіта</option>
+                                    <option value="Технології">Технології</option>
+                                    <option value="Розваги">Розваги</option>
+                                    <option value="Їжа">Їжа</option>
+                                    <option value="Подорожі">Подорожі</option>
+                                    <option value="Ігри">Ігри</option>
+                                    <option value="Спорт">Спорт</option>
+                                    <option value="Мода">Мода</option>
+                                    <option value="Бізнес">Бізнес</option>
+                                    <option value="Здоров'я">Здоров'я</option>
+                                </select>
+                            </div>
+
+                            <div class="mb-3">
+                                <label for="ideas-count" class="form-label">Кількість ідей</label>
+                                <input type="number" id="ideas-count" class="form-control" min="1" max="5" value="3">
+                                <div class="form-text">Більше ідей = довший час аналізу</div>
+                            </div>
+
+                            <button type="submit" id="analyze-btn" class="btn btn-primary w-100">
+                                <i class="fas fa-lightbulb"></i> Аналізувати
+                            </button>
+                        </form>
+                    </div>
+                </div>
+
+                <div class="card shadow-sm">
+                    <div class="card-header bg-info text-white">
+                        <h5 class="mb-0">Інформація</h5>
+                    </div>
+                    <div class="card-body">
+                        <p><i class="fas fa-info-circle text-info me-2"></i> Аналізатор використовує Google Trends та Gemini API для генерації ідей для відео.</p>
+                        <p><i class="fas fa-clock text-info me-2"></i> Аналіз займає 5-15 секунд.</p>
+                        <p><i class="fas fa-language text-info me-2"></i> Оптимізовано для українських трендів.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Права колонка: результати аналізу -->
+            <div class="col-md-8">
+                <div id="results-container" class="card shadow-sm d-none">
+                    <div class="card-header bg-success text-white d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0" id="results-title">Результати аналізу</h5>
+                        <button id="copy-results" class="btn btn-sm btn-light">
+                            <i class="fas fa-copy"></i> Копіювати
+                        </button>
+                    </div>
+                    <div class="card-body">
+                        <div id="loader" class="text-center my-5 d-none">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="visually-hidden">Завантаження...</span>
+                            </div>
+                            <p class="mt-3">Генерація ідей... Зачекайте, будь ласка.</p>
+                        </div>
+                        <div id="results" class="markdown-content"></div>
+                    </div>
+                </div>
+
+                <div id="welcome-container" class="card shadow-sm">
+                    <div class="card-body text-center p-5">
+                        <i class="fas fa-chart-line text-primary fa-4x mb-3"></i>
+                        <h3>Ласкаво просимо до YouTube Trend Analyzer</h3>
+                        <p class="lead">Оберіть тренд або введіть своє ключове слово і натисніть "Аналізувати"</p>
+                        <p>Система автоматично згенерує ідеї для відео на основі актуальних трендів</p>
+                    </div>
+                </div>
+
+                <div id="error-container" class="alert alert-danger mt-3 d-none">
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    <span id="error-message"></span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <footer class="bg-dark text-white text-center py-3 mt-5">
+        <div class="container">
+            <p class="mb-0">YouTube Trend Analyzer &copy; 2025 | Powered by Google Trends & Gemini API</p>
+        </div>
+    </footer>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.2.3/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/4.2.5/marked.min.js"></script>
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>

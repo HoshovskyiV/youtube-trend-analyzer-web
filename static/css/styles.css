@@ -1,0 +1,115 @@
+/* ОСНОВНІ СТИЛІ */
+body {
+    background-color: #f8f9fa;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+.container {
+    max-width: 1200px;
+}
+
+/* ЗАГОЛОВОК */
+header h1 {
+    font-weight: 700;
+    color: #212529;
+}
+
+/* КАРТОЧКИ */
+.card {
+    border-radius: 10px;
+    border: none;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    overflow: hidden;
+    transition: transform 0.3s ease;
+}
+
+.card:hover {
+    transform: translateY(-5px);
+}
+
+.card-header {
+    font-weight: 600;
+    border-bottom: none;
+}
+
+/* КНОПКИ */
+.btn {
+    border-radius: 5px;
+    font-weight: 500;
+    padding: 0.5rem 1rem;
+    transition: all 0.3s ease;
+}
+
+.btn-primary {
+    background-color: #0d6efd;
+    border-color: #0d6efd;
+}
+
+.btn-primary:hover {
+    background-color: #0b5ed7;
+    border-color: #0a58ca;
+}
+
+/* ФОРМА */
+.form-label {
+    font-weight: 500;
+    color: #495057;
+}
+
+.form-control, .form-select {
+    border-radius: 5px;
+    border: 1px solid #ced4da;
+    padding: 0.5rem 0.75rem;
+}
+
+.form-control:focus, .form-select:focus {
+    border-color: #86b7fe;
+    box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25);
+}
+
+/* РЕЗУЛЬТАТИ */
+.markdown-content {
+    line-height: 1.6;
+}
+
+.markdown-content h2 {
+    color: #0d6efd;
+    margin-top: 1.5rem;
+    font-size: 1.4rem;
+}
+
+.markdown-content h3 {
+    color: #212529;
+    margin-top: 1.2rem;
+    font-size: 1.2rem;
+}
+
+.markdown-content ul {
+    padding-left: 1.2rem;
+}
+
+.markdown-content hr {
+    margin: 1.5rem 0;
+    border-color: #dee2e6;
+}
+
+.markdown-content strong {
+    color: #495057;
+}
+
+/* АНІМАЦІЯ ЗАВАНТАЖЕННЯ */
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+.spinner-border {
+    animation: spin 1s linear infinite;
+}
+
+/* АДАПТИВНІСТЬ */
+@media (max-width: 768px) {
+    .card {
+        margin-bottom: 1.5rem;
+    }
+}

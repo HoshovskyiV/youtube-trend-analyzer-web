@@ -1,4 +1,3 @@
-
 from flask import Flask, request, jsonify, render_template
 import os
 import json
@@ -353,9 +352,10 @@ CORS(app)
 # Глобальна змінна для аналізатора трендів
 analyzer = None
 
-@app.before_first_request
+# Для Render.com ми не можемо використовувати @app.before_first_request
+# оскільки це застаріла функція у Flask 2.2.x, тому створимо функцію ініціалізації
 def initialize_analyzer():
-    """Ініціалізація аналізатора трендів перед першим запитом"""
+    """Ініціалізація аналізатора трендів"""
     global analyzer
     # Отримуємо API ключ з змінних середовища
     gemini_api_key = os.environ.get('GEMINI_API_KEY')
@@ -373,6 +373,9 @@ def initialize_analyzer():
         logger.info("Аналізатор трендів ініціалізовано")
     except Exception as e:
         logger.error(f"Помилка ініціалізації аналізатора трендів: {str(e)}")
+
+# Ініціалізуємо аналізатор при запуску
+initialize_analyzer()
 
 @app.route('/')
 def index():

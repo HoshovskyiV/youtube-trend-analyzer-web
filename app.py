@@ -8,7 +8,6 @@ from flask_cors import CORS
 from retry import retry
 import requests
 from bs4 import BeautifulSoup
-import pandas as pd
 import random
 import re
 
@@ -24,7 +23,7 @@ logger = logging.getLogger("TrendAnalyzer")
 
 class GoogleTrendsClient:
     """
-    Клієнт для отримання трендових пошуків через скрапінг
+    Клієнт для отримання трендових пошуків через скрапінг Google Trends
     """
     def __init__(self, language='uk', geo='UA'):
         """
@@ -36,27 +35,35 @@ class GoogleTrendsClient:
         self.language = language
         self.geo = geo
         
-        # Потенційні джерела для скрапінгу
+        # Джерела для скрапінгу Google Trends з різними регіонами та мовами
         self.scraping_sources = [
+            # Українські тренди
             "https://trends.google.com/trends/trendingsearches/daily?geo=UA&hl=uk",
-            "https://trends.google.com/trends/trendingsearches/daily?geo=US&hl=uk"
+            "https://trends.google.com/trends/trendingsearches/realtime?geo=UA&hl=uk&category=all",
+            
+            # Додаємо інші регіони, але з українською мовою інтерфейсу
+            "https://trends.google.com/trends/trendingsearches/daily?geo=RU&hl=uk",
+            "https://trends.google.com/trends/trendingsearches/daily?geo=PL&hl=uk",
+            "https://trends.google.com/trends/trendingsearches/daily?geo=US&hl=uk",
+            "https://trends.google.com/trends/trendingsearches/daily?geo=GB&hl=uk",
+            "https://trends.google.com/trends/trendingsearches/daily?geo=DE&hl=uk",
+            
+            # Глобальні тренди з українською мовою
+            "https://trends.google.com/trends/trendingsearches/daily?geo=&hl=uk",
+            
+            # Тренди для суміжних категорій
+            "https://trends.google.com/trends/trendingsearches/daily?geo=UA&hl=uk&category=b",  # Бізнес
+            "https://trends.google.com/trends/trendingsearches/daily?geo=UA&hl=uk&category=e",  # Розваги
+            "https://trends.google.com/trends/trendingsearches/daily?geo=UA&hl=uk&category=t",  # Технології
+            "https://trends.google.com/trends/trendingsearches/daily?geo=UA&hl=uk&category=h"   # Здоров'я
         ]
         
-        # Список українських новинних сайтів для скрапінгу
-        self.news_sites = [
-            "https://www.pravda.com.ua/",
-            "https://www.unian.ua/",
-            "https://tsn.ua/",
-            "https://suspilne.media/",
-            "https://www.bbc.com/ukrainian"
-        ]
-        
-        logger.info(f"Ініціалізовано клієнт для скрапінгу трендів з мовою {language} та регіоном {geo}")
+        logger.info(f"Ініціалізовано клієнт для скрапінгу Google Trends з мовою {language} та регіоном {geo}")
 
-    @retry(tries=3, delay=2, backoff=2)
+    @retry(tries=5, delay=2, backoff=2)
     def get_trending_searches(self, count=20):
         """
-        Отримати список трендових пошуків для заданого регіону
+        Отримати список трендових пошуків з Google Trends через скрапінг
 
         :param count: кількість трендових запитів для повернення
         :return: список трендових запитів
@@ -64,200 +71,139 @@ class GoogleTrendsClient:
         # Список для зберігання трендів
         all_trends = []
         
-        # 1. Скрапінг Google Trends веб-сторінки
-        try:
-            logger.info("Скрапінг Google Trends веб-сторінки для України")
-            scraped_trends = self._scrape_google_trends_page()
-            if scraped_trends:
-                logger.info(f"Скрапінг Google Trends повернув {len(scraped_trends)} трендів")
-                all_trends.extend(scraped_trends)
-        except Exception as e:
-            logger.warning(f"Помилка при скрапінгу Google Trends: {str(e)}")
-        
-        # 2. Скрапінг українських новинних сайтів, якщо недостатньо трендів
-        if len(all_trends) < count:
-            try:
-                logger.info("Скрапінг українських новинних сайтів")
-                news_trends = self._scrape_news_sites()
-                if news_trends:
-                    logger.info(f"Скрапінг новинних сайтів повернув {len(news_trends)} трендів")
-                    all_trends.extend(news_trends)
-            except Exception as e:
-                logger.warning(f"Помилка при скрапінгу новинних сайтів: {str(e)}")
-        
-        # 3. Якщо все ще недостатньо трендів, використовуємо запасний список
-        if len(all_trends) < count:
-            logger.info("Використовуємо запасний список питальних конструкцій")
-            fallback_trends = self._get_fallback_trends()
-            all_trends.extend(fallback_trends)
-        
-        # Видаляємо дублікати
-        unique_trends = list(dict.fromkeys(all_trends))
-        
-        # Обмеження до заданої кількості та перемішування для різноманіття
-        if len(unique_trends) > count:
-            # Перемішуємо список, щоб отримати різноманітні тренди
-            random.shuffle(unique_trends)
-            result = unique_trends[:count]
-        else:
-            result = unique_trends
-        
-        logger.info(f"Повернено {len(result)} трендових запитів")
-        return result
-    
-    def _scrape_google_trends_page(self):
-        """
-        Скрапінг Google Trends веб-сторінки для отримання трендів
-        
-        :return: список трендів
-        """
-        trends = []
-        
+        # Скрапінг Google Trends веб-сторінок
         for url in self.scraping_sources:
             try:
-                # Додаємо User-Agent, щоб імітувати звичайний браузер
-                headers = {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-                }
+                logger.info(f"Скрапінг Google Trends: {url}")
+                trends = self._scrape_google_trends_url(url)
                 
-                # Робимо запит
-                response = requests.get(url, headers=headers, timeout=10)
-                
-                # Перевіряємо статус відповіді
-                if response.status_code == 200:
-                    # Парсимо HTML
-                    soup = BeautifulSoup(response.text, 'html.parser')
+                if trends:
+                    logger.info(f"Знайдено {len(trends)} трендів з {url}")
+                    all_trends.extend(trends)
                     
-                    # Шукаємо тренди в HTML структурі
-                    # Це основний селектор для трендів у Google Trends
-                    trend_elements = soup.select('div.feed-item-header')
-                    
-                    if not trend_elements:
-                        # Спробуємо альтернативні селектори, якщо структура сторінки змінилася
-                        trend_elements = soup.select('.title a')
-                        
-                    if not trend_elements:
-                        trend_elements = soup.select('.feed-item .title')
-                    
-                    for element in trend_elements:
-                        trend_text = element.text.strip()
-                        if trend_text and len(trend_text) > 2 and len(trend_text) < 100:
-                            # Очищення тексту від зайвих символів
-                            trend_text = re.sub(r'\d+\s*[KkMmBb]\+?\s*searches', '', trend_text).strip()
-                            trend_text = re.sub(r'\n', ' ', trend_text).strip()
-                            
-                            if trend_text:
-                                trends.append(trend_text)
-                    
-                    # Якщо знайшли тренди, виходимо з циклу
-                    if trends:
+                    # Якщо маємо достатньо трендів, можемо зупинитися
+                    if len(all_trends) >= count * 2:  # Збираємо з запасом для фільтрації
                         break
+                        
             except Exception as e:
                 logger.warning(f"Помилка при скрапінгу {url}: {str(e)}")
         
-        return trends
-    
-    def _scrape_news_sites(self):
-        """
-        Скрапінг українських новинних сайтів для отримання актуальних тем
+        # Видаляємо дублікати і фільтруємо
+        unique_trends = []
+        seen = set()
         
-        :return: список трендів на основі заголовків новин
+        for trend in all_trends:
+            # Нормалізуємо текст для порівняння (нижній регістр, видалення зайвих пробілів)
+            normalized = re.sub(r'\s+', ' ', trend.lower().strip())
+            
+            if normalized not in seen and len(normalized) > 2:
+                seen.add(normalized)
+                unique_trends.append(trend)
+        
+        # Перемішуємо для різноманіття і обмежуємо кількість
+        random.shuffle(unique_trends)
+        result = unique_trends[:count] if len(unique_trends) > count else unique_trends
+        
+        # Якщо не знайдено жодного тренду, логуємо помилку
+        if not result:
+            logger.error("Не вдалося отримати жодного тренду з Google Trends")
+        else:
+            logger.info(f"Успішно отримано {len(result)} трендів з Google Trends")
+            
+        return result
+    
+    def _scrape_google_trends_url(self, url):
+        """
+        Скрапінг конкретного URL Google Trends
+        
+        :param url: URL для скрапінгу
+        :return: список трендів
         """
         trends = []
         
-        for site in self.news_sites:
-            try:
-                headers = {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-                }
+        try:
+            # Додаємо User-Agent, щоб імітувати звичайний браузер
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                'Accept-Language': 'uk-UA,uk;q=0.9,en-US;q=0.8,en;q=0.7',
+                'Referer': 'https://www.google.com/'
+            }
+            
+            # Робимо запит з збільшеним таймаутом
+            response = requests.get(url, headers=headers, timeout=15)
+            
+            # Перевіряємо статус відповіді
+            if response.status_code == 200:
+                # Парсимо HTML
+                soup = BeautifulSoup(response.text, 'html.parser')
                 
-                response = requests.get(site, headers=headers, timeout=10)
+                # Спробуємо різні селектори, які використовуються в Google Trends
+                selectors = [
+                    'div.feed-item-header',  # Основний селектор
+                    '.title a',              # Альтернативний селектор
+                    '.feed-item .title',     # Ще один альтернативний селектор
+                    '.title',                # Простий селектор для заголовків
+                    'md-card .details',      # Селектор для карток
+                    '.trending-searches-item',  # Селектор для трендових пошуків
+                    '.details-top',          # Селектор для деталей
+                    'feed-list-item .details-text', # Селектор для списку
+                    'a[href*="explore"]',    # Посилання на сторінку тренду
+                    '.feed-load-more-button'  # Кнопка "завантажити більше"
+                ]
                 
-                if response.status_code == 200:
-                    # Парсимо HTML
-                    soup = BeautifulSoup(response.text, 'html.parser')
+                trend_elements = []
+                
+                # Перебираємо селектори, поки не знайдемо тренди
+                for selector in selectors:
+                    trend_elements = soup.select(selector)
+                    if trend_elements:
+                        break
+                
+                # Якщо не знайшли через селектори, спробуємо витягти з JSON даних
+                if not trend_elements:
+                    # Шукаємо вбудовані JSON дані
+                    scripts = soup.find_all('script')
+                    for script in scripts:
+                        script_text = script.string
+                        if script_text and ('trend' in script_text.lower() or 'search' in script_text.lower()):
+                            # Спроба витягти JSON
+                            try:
+                                # Шукаємо JSON-подібний контент
+                                json_match = re.search(r'({[\s\S]*})', script_text)
+                                if json_match:
+                                    json_data = json.loads(json_match.group(1))
+                                    # Шукаємо тренди в JSON структурі
+                                    if 'items' in json_data:
+                                        for item in json_data['items']:
+                                            if 'title' in item:
+                                                trends.append(item['title'])
+                            except Exception as e:
+                                logger.debug(f"Помилка витягнення JSON: {str(e)}")
+                
+                # Обробка елементів, знайдених через селектори
+                for element in trend_elements:
+                    trend_text = element.text.strip()
                     
-                    # Шукаємо заголовки новин
-                    headlines = soup.find_all(['h1', 'h2', 'h3', 'h4'])
+                    # Очищаємо текст від зайвих символів
+                    trend_text = re.sub(r'\d+\s*[KkMmBb]\+?\s*searches', '', trend_text)
+                    trend_text = re.sub(r'\n', ' ', trend_text)
+                    trend_text = re.sub(r'\s+', ' ', trend_text)
                     
+                    if trend_text and len(trend_text) > 2 and len(trend_text) < 100:
+                        trends.append(trend_text.strip())
+                
+                # Якщо селектори не спрацювали, пробуємо витягти будь-який текст з тегів h2, h3, h4
+                if not trends:
+                    headlines = soup.find_all(['h2', 'h3', 'h4'])
                     for headline in headlines:
                         text = headline.text.strip()
-                        if text and len(text) > 5 and len(text) < 100:
-                            # Перетворюємо заголовок новини у пошуковий запит
-                            # Видаляємо зайві символи
-                            clean_text = re.sub(r'[^\w\s]', '', text)
-                            clean_text = clean_text.strip()
-                            
-                            # Трансформуємо в питальну конструкцію для кращих результатів
-                            if len(clean_text.split()) <= 5 and self._is_likely_ukrainian(clean_text):
-                                # Для коротких заголовків додаємо питальні форми
-                                trends.append(f"що таке {clean_text}")
-                                trends.append(f"як {clean_text}")
-                            else:
-                                # Для довших заголовків використовуємо оригінальний текст
-                                if self._is_likely_ukrainian(clean_text):
-                                    trends.append(clean_text)
-                    
-                    # Якщо знайшли достатньо, виходимо з циклу
-                    if len(trends) >= 30:
-                        break
-            except Exception as e:
-                logger.warning(f"Помилка при скрапінгу {site}: {str(e)}")
+                        if text and len(text) > 3 and len(text) < 100:
+                            trends.append(text)
         
-        return trends[:30]  # Обмежуємо кількість трендів
-
-    def _get_fallback_trends(self):
-        """
-        Надає запасний список трендів на випадок, якщо скрапінг не працює
+        except Exception as e:
+            logger.warning(f"Помилка при скрапінгу {url}: {str(e)}")
         
-        :return: список трендів
-        """
-        fallback_trends = [
-            # Базові питальні слова
-            "як вирішити проблему",
-            "чому сталася помилка",
-            "де знайти рішення",
-            "коли починається",
-            "що робити якщо",
-            "хто допоможе",
-            "скільки коштує",
-            "навіщо потрібно",
-            "куди звернутися",
-            "звідки походить",
-            "який вибрати",
-            "яка найкраща програма",
-            "яке рішення підійде",
-            "які документи потрібні",
-            
-            # Поширені конструкції з "як"
-            "як захиститися від кібератак",
-            "як встановити захищене підключення",
-            "як налаштувати VPN",
-            "як використовувати Starlink",
-            "як приготувати консерви",
-            "як відновити пошкоджені файли",
-            "як видалити шкідливе ПЗ",
-            "як вибрати генератор",
-            "як знайти роботу онлайн",
-            "як створити резервне копіювання",
-            "як заробити під час кризи",
-            "як змінити налаштування безпеки",
-            "як дізнатися про відключення світла",
-            "як вирішити проблему з інтернетом",
-            "як купити валюту",
-            "як перевірити безпеку пристрою",
-            
-            # Актуальні для України 
-            "де купити генератор",
-            "скільки коштує Starlink",
-            "чому не працює електрика",
-            "коли буде світло",
-            "як заощадити енергію",
-            "що робити під час повітряної тривоги",
-            "як відновити пошкоджене житло",
-            "як оформити допомогу"
-        ]
-        return fallback_trends
+        return trends
     
     def _is_likely_ukrainian(self, text):
         """
@@ -275,136 +221,91 @@ class GoogleTrendsClient:
     
     def get_related_queries(self, keyword):
         """
-        Отримати пов'язані запити для заданого ключового слова через скрапінг
+        Отримати пов'язані запити для заданого ключового слова через додатковий скрапінг
         
         :param keyword: ключове слово для пошуку пов'язаних запитів
         :return: словник з топовими та зростаючими запитами
         """
-        # Спробуємо знайти схожі тренди зі списку скрапінга
         try:
-            logger.info(f"Пошук пов'язаних запитів для '{keyword}' через скрапінг")
+            logger.info(f"Пошук пов'язаних запитів для '{keyword}' через Google Trends")
             
-            # Отримуємо більше трендів для пошуку
-            all_trends = self._scrape_google_trends_page() + self._scrape_news_sites()
+            # Формуємо URL для сторінки Google Trends з пошуком конкретного ключового слова
+            encoded_keyword = requests.utils.quote(keyword)
+            related_url = f"https://trends.google.com/trends/explore?geo=UA&hl=uk&q={encoded_keyword}"
             
-            # Фільтруємо тренди, які можуть бути пов'язані з ключовим словом
-            related_top = []
-            related_rising = []
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                'Accept-Language': 'uk-UA,uk;q=0.9,en-US;q=0.8,en;q=0.7',
+                'Referer': 'https://www.google.com/'
+            }
             
-            keyword_lower = keyword.lower()
-            keyword_words = set(keyword_lower.split())
+            response = requests.get(related_url, headers=headers, timeout=15)
             
-            for trend in all_trends:
-                trend_lower = trend.lower()
+            top_queries = []
+            rising_queries = []
+            
+            if response.status_code == 200:
+                soup = BeautifulSoup(response.text, 'html.parser')
                 
-                # Простий алгоритм для визначення пов'язаності:
-                # 1. Якщо тренд містить ключове слово - додаємо до топових
-                if keyword_lower in trend_lower:
-                    related_top.append(trend)
-                    continue
+                # Спроба знайти пов'язані запити в HTML структурі
+                related_sections = soup.find_all('div', class_='related-queries')
+                for section in related_sections:
+                    queries = section.find_all('div', class_='queries-list')
+                    if queries:
+                        for query in queries:
+                            query_text = query.text.strip()
+                            if query_text:
+                                if 'top' in section.attrs.get('class', []):
+                                    top_queries.append(query_text)
+                                else:
+                                    rising_queries.append(query_text)
                 
-                # 2. Якщо є перетин ключових слів - додаємо до зростаючих
-                trend_words = set(trend_lower.split())
-                if keyword_words.intersection(trend_words):
-                    related_rising.append(trend)
+                # Якщо не знайшли через стандартні селектори, шукаємо в скриптах
+                if not top_queries and not rising_queries:
+                    scripts = soup.find_all('script')
+                    for script in scripts:
+                        if script.string and 'relatedQueries' in script.string:
+                            try:
+                                # Пошук JSON даних у скрипті
+                                json_data = re.search(r'google\.visualization\.Query\.setResponse\((.*)\);', script.string)
+                                if json_data:
+                                    data = json.loads(json_data.group(1))
+                                    if 'table' in data and 'rows' in data['table']:
+                                        for row in data['table']['rows']:
+                                            if 'c' in row and len(row['c']) >= 2:
+                                                query_text = row['c'][0]['v']
+                                                if query_text:
+                                                    top_queries.append(query_text)
+                            except Exception as e:
+                                logger.warning(f"Помилка при витягненні JSON: {str(e)}")
             
-            logger.info(f"Знайдено {len(related_top)} топових та {len(related_rising)} зростаючих запитів")
+            # Отримуємо додаткові тренди для порівняння
+            additional_trends = self.get_trending_searches(count=50)
             
-            # Якщо знайшли достатньо пов'язаних запитів, повертаємо їх
-            if related_top or related_rising:
-                return {
-                    'top': related_top[:5],  # Обмежуємо до 5 результатів
-                    'rising': related_rising[:5]
-                }
+            # Знаходимо схожі тренди
+            if not top_queries and not rising_queries:
+                keyword_lower = keyword.lower()
+                for trend in additional_trends:
+                    trend_lower = trend.lower()
+                    # Якщо тренд містить ключове слово - додаємо до топових
+                    if keyword_lower in trend_lower:
+                        top_queries.append(trend)
+                    # Якщо ключове слово є частиною тренду - додаємо до зростаючих
+                    elif any(word in trend_lower for word in keyword_lower.split()):
+                        rising_queries.append(trend)
             
-            # Якщо не знайшли, перетворюємо ключове слово в різні форми запитів
-            generated_queries = self._generate_related_queries(keyword)
-            logger.info(f"Згенеровано {len(generated_queries['top'])} пов'язаних запитів")
+            logger.info(f"Знайдено {len(top_queries)} топових та {len(rising_queries)} зростаючих запитів")
             
-            return generated_queries
+            # Обмежуємо кількість результатів
+            return {
+                'top': top_queries[:5],
+                'rising': rising_queries[:5]
+            }
             
         except Exception as e:
             logger.error(f"Помилка при отриманні пов'язаних запитів: {str(e)}")
-            # У випадку помилки генеруємо фіктивні дані
-            return self._generate_related_queries(keyword)
-    
-    def _generate_related_queries(self, keyword):
-        """
-        Генерує список пов'язаних запитів на базі ключового слова
-        
-        :param keyword: ключове слово
-        :return: словник з топовими та зростаючими запитами
-        """
-        # Базові шаблони для різних типів питань
-        if keyword.startswith("як"):
-            return {
-                'top': [
-                    f"{keyword} швидко", 
-                    f"{keyword} в домашніх умовах", 
-                    f"{keyword} без спеціальних інструментів", 
-                    f"{keyword} правильно", 
-                    f"{keyword} своїми руками"
-                ],
-                'rising': [
-                    f"{keyword} під час війни", 
-                    f"найкращий спосіб {keyword}", 
-                    f"покрокова інструкція {keyword}", 
-                    f"відео як {keyword}", 
-                    f"поради експертів як {keyword}"
-                ]
-            }
-        elif keyword.startswith("що"):
-            return {
-                'top': [
-                    f"{keyword} простими словами", 
-                    f"{keyword} насправді", 
-                    f"{keyword} означає", 
-                    f"{keyword} в Україні", 
-                    f"{keyword} науковий погляд"
-                ],
-                'rising': [
-                    f"{keyword} під час війни", 
-                    f"{keyword} нові дослідження", 
-                    f"{keyword} сучасний підхід", 
-                    f"{keyword} цікаві факти", 
-                    f"{keyword} міфи і реальність"
-                ]
-            }
-        elif keyword.startswith("де"):
-            return {
-                'top': [
-                    f"{keyword} в Україні", 
-                    f"{keyword} онлайн", 
-                    f"{keyword} недорого", 
-                    f"{keyword} відгуки", 
-                    f"{keyword} рейтинг"
-                ],
-                'rising': [
-                    f"{keyword} під час війни", 
-                    f"{keyword} в умовах кризи", 
-                    f"{keyword} в Європі", 
-                    f"{keyword} кращі місця", 
-                    f"{keyword} перевірені джерела"
-                ]
-            }
-        else:
-            # Для інших типів питань
-            return {
-                'top': [
-                    f"{keyword} в Україні", 
-                    f"як {keyword}", 
-                    f"що таке {keyword}", 
-                    f"{keyword} приклади", 
-                    f"{keyword} для початківців"
-                ],
-                'rising': [
-                    f"{keyword} під час війни", 
-                    f"{keyword} в умовах кризи", 
-                    f"найкраще {keyword}", 
-                    f"{keyword} поради", 
-                    f"{keyword} відео"
-                ]
-            }
+            # У випадку помилки повертаємо пусті списки
+            return {'top': [], 'rising': []}
 
 
 class TrendAnalyzer:
@@ -537,7 +438,10 @@ class TrendAnalyzer:
             
             # Отримання трендів для контексту
             trends = self.get_trending_searches(count=10)
-            trends_str = "Поточні тренди в Україні:\n- " + "\n- ".join(trends[:5])
+            # Логуємо тренди для аналізу
+            logger.info(f"Поточні тренди з Google: {trends}")
+            
+            trends_str = "Поточні тренди в Google Trends Україна:\n- " + "\n- ".join(trends[:5])
             
             # Отримання пов'язаних запитів для збагачення контексту
             related = self.get_related_queries(keyword)
@@ -547,8 +451,12 @@ class TrendAnalyzer:
                 related_str = "Пов'язані запити:\n"
                 if related['top']:
                     related_str += "Топові: " + ", ".join(related['top'][:5]) + "\n"
+                    # Логуємо для аналізу
+                    logger.info(f"Пов'язані топові запити: {related['top'][:5]}")
                 if related['rising']:
                     related_str += "Зростаючі: " + ", ".join(related['rising'][:5]) + "\n"
+                    # Логуємо для аналізу
+                    logger.info(f"Пов'язані зростаючі запити: {related['rising'][:5]}")
             
             # Формуємо промпт для Gemini з урахуванням категорії, якщо вона вказана
             category_str = f"в категорії {category}" if category else ""
@@ -601,10 +509,10 @@ class TrendAnalyzer:
             
             {current_context}
             
-            ВАЖЛИВО: Створи ідеї саме на основі реального тренду "{keyword}", а не вигадуй нові теми! Ідеї мають бути конкретно пов'язані з цим пошуковим запитом і відповідати на потреби користувачів, які шукають інформацію за цією темою.
+            ДУЖЕ ВАЖЛИВО: Не вигадуй нові теми! Створи ідеї виключно на основі конкретного пошукового запиту "{keyword}" та пов'язаних з ним запитів, які наведені вище. Ідеї повинні відповідати на конкретні запитання/потреби користувачів, які шукають інформацію за цим запитом.
             
             Для кожної ідеї обов'язково надай:
-            1. Привабливий заголовок для відео (до 60 символів), який обов'язково включає оригінальний пошуковий запит
+            1. Привабливий заголовок для відео (до 60 символів), який обов'язково включає оригінальний пошуковий запит: "{keyword}"
             2. Короткий опис (до 160 символів), що добре оптимізований для SEO
             3. 5-7 ключових моментів для сценарію, з практичною користю для глядача
             4. Список із 5-8 ключових слів українською мовою для оптимізації SEO (включно з оригінальним запитом)
@@ -612,7 +520,7 @@ class TrendAnalyzer:
             
             Формат відповіді:
             
-            ## Ідея 1: [ЗАГОЛОВОК з включенням оригінального запиту]
+            ## Ідея 1: [ЗАГОЛОВОК ОБОВ'ЯЗКОВО ВКЛЮЧАЄ "{keyword}"]
             
             **Опис**: [ОПИС]
             

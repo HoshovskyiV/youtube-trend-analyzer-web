@@ -1,0 +1,12 @@
+services:
+  - type: web                    # Це веб-сервіс
+    name: youtube-trend-analyzer # Назва вашого додатку
+    env: python                  # Середовище виконання - Python
+    plan: free                   # Безкоштовний план Render.com
+    buildCommand: pip install -r requirements.txt  # Команда для встановлення залежностей
+    startCommand: gunicorn app:app -b 0.0.0.0:$PORT  # Команда для запуску додатку
+    envVars:                     # Змінні середовища
+      - key: PYTHON_VERSION      # Версія Python
+        value: 3.9.15
+      - key: GEMINI_API_KEY      # API ключ для Gemini
+        sync: false              # Не зберігати в репозиторії (налаштовується через Render Dashboard)

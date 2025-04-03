@@ -177,7 +177,8 @@ class TrendAnalyzer:
         """
         try:
             # Отримуємо список доступних моделей
-            available_models = genai.list_models()
+            # Зберігаємо список моделей, конвертуючи генератор у список
+            available_models = list(genai.list_models())
             logger.info(f"Доступні моделі Gemini: {[model.name for model in available_models]}")
             
             # Шукаємо відповідну модель

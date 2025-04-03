@@ -7,6 +7,11 @@ import google.generativeai as genai  # SDK для Gemini API
 from pytrends.request import TrendReq  # Бібліотека PyTrends замість SerpAPI
 from flask_cors import CORS
 from retry import retry
+import requests
+from bs4 import BeautifulSoup
+import pandas as pd
+import random
+import re
 
 # Налаштування логування
 logging.basicConfig(
@@ -36,6 +41,15 @@ class GoogleTrendsClient:
         # Ініціалізація PyTrends з відповідними параметрами
         self.pytrends = TrendReq(hl=language, geo=geo, tz=tz)
         logger.info(f"Ініціалізовано PyTrends клієнт для Google Trends з мовою {language} та регіоном {geo}")
+        
+        # Список країн, які точно підтримуються в PyTrends
+        self.supported_countries = ['united_states', 'japan', 'india']
+        
+        # Потенційні джерела для скрапінгу, якщо PyTrends не працює
+        self.scraping_sources = [
+            "https://trends.google.com/trends/trendingsearches/daily?geo=UA&hl=uk",
+            "https://trends.google.com/trends/trendingsearches/daily?geo=US&hl=uk"
+        ]
 
     @retry(tries=3, delay=2, backoff=2)
     def get_trending_searches(self, count=20):
@@ -45,45 +59,51 @@ class GoogleTrendsClient:
         :param count: кількість трендових запитів для повернення
         :return: список трендових запитів
         """
+        # Список для зберігання трендів, які ми спробуємо отримати з різних джерел
+        all_trends = []
+        
+        # 1. Спочатку спробуємо офіційний метод PyTrends для України
         try:
-            # Треба адаптувати залежно від регіону - для України використовуємо США 
-            # оскільки PyTrends не має прямого методу для України
-            country = 'ukraine'  # Будемо намагатись отримати дані для українських трендів
-            
-            logger.info(f"Запит трендових пошуків через PyTrends")
-            
-            # Спочатку спробуємо отримати щоденні тренди для своєї країни, якщо доступно
-            try:
-                trending_searches_df = self.pytrends.trending_searches(pn=country)
-                trending_searches = trending_searches_df[0].tolist()
-                logger.info(f"Отримано {len(trending_searches)} трендових запитів для {country}")
-            except Exception as e:
-                logger.warning(f"Не вдалося отримати тренди для {country}, використовуємо US: {str(e)}")
-                # Якщо не вдається отримати для України, використовуємо US
-                trending_searches_df = self.pytrends.trending_searches(pn='united_states')
-                trending_searches = trending_searches_df[0].tolist()
-                logger.info(f"Отримано {len(trending_searches)} трендових запитів для US")
-            
-            # Додатково можемо отримати дані real-time трендів для обраного регіону
-            try:
-                realtime_trends_df = self.pytrends.realtime_trending_searches(pn=country)
-                if not realtime_trends_df.empty:
-                    # Витягуємо унікальні заголовки з даних real-time трендів
-                    realtime_trends = realtime_trends_df['title'].unique().tolist()
-                    # Додаємо їх до основного списку
-                    trending_searches = list(dict.fromkeys(trending_searches + realtime_trends))
-                    logger.info(f"Додано {len(realtime_trends)} real-time трендів")
-            except Exception as e:
-                logger.warning(f"Не вдалося отримати real-time тренди: {str(e)}")
-            
-            # Обмеження до заданої кількості
-            result = trending_searches[:count] if len(trending_searches) > count else trending_searches
-            logger.info(f"Повернено {len(result)} трендових запитів")
-            
-            return result
+            logger.info(f"Спроба #1: Запит трендових пошуків через PyTrends для України")
+            trending_searches_df = self.pytrends.trending_searches(pn='ukraine')
+            ukrainian_trends = trending_searches_df[0].tolist()
+            logger.info(f"PyTrends повернув {len(ukrainian_trends)} українських трендів")
+            all_trends.extend(ukrainian_trends)
         except Exception as e:
-            logger.error(f"Неочікувана помилка при отриманні трендових запитів: {str(e)}")
-            # У випадку помилки використовуємо список питальних конструкцій
+            logger.warning(f"Не вдалося отримати тренди для України через PyTrends: {str(e)}")
+        
+        # 2. Спробуємо отримати тренди для підтримуваних країн і відфільтрувати українські
+        if len(all_trends) < count:
+            for country in self.supported_countries:
+                try:
+                    logger.info(f"Спроба #2: Запит трендових пошуків через PyTrends для {country}")
+                    trending_searches_df = self.pytrends.trending_searches(pn=country)
+                    trends = trending_searches_df[0].tolist()
+                    
+                    # Додаємо до загального списку
+                    all_trends.extend(trends)
+                    logger.info(f"PyTrends повернув {len(trends)} трендів для {country}")
+                    
+                    # Якщо маємо достатньо трендів, виходимо з циклу
+                    if len(all_trends) >= count * 2:  # Отримуємо більше, щоб потім відфільтрувати
+                        break
+                except Exception as e:
+                    logger.warning(f"Не вдалося отримати тренди для {country}: {str(e)}")
+        
+        # 3. Спробуємо скрапінг Google Trends веб-сторінки для України
+        if len(all_trends) < count:
+            try:
+                logger.info(f"Спроба #3: Скрапінг Google Trends веб-сторінки для України")
+                scraped_trends = self._scrape_google_trends_page()
+                if scraped_trends:
+                    logger.info(f"Скрапінг повернув {len(scraped_trends)} трендів")
+                    all_trends.extend(scraped_trends)
+            except Exception as e:
+                logger.warning(f"Помилка при скрапінгу Google Trends: {str(e)}")
+        
+        # 4. Якщо все ще недостатньо трендів, додаємо фіктивні дані на основі питальних конструкцій
+        if len(all_trends) < count:
+            logger.info(f"Спроба #4: Використовуємо запасний список питальних конструкцій")
             fallback_trends = [
                 # Базові питальні слова
                 "як",
@@ -181,9 +201,132 @@ class GoogleTrendsClient:
                 "звідки походить",
                 "з чого зроблено"
             ]
-            logger.info(f"Використовуємо запасний список питальних конструкцій")
-            return fallback_trends[:count]
-
+            all_trends.extend(fallback_trends)
+        
+        # Видаляємо дублікати і трансформуємо тренди для української локалізації
+        unique_trends = list(dict.fromkeys(all_trends))
+        
+        # Якщо тренди не українською мовою, можна спробувати адаптувати їх
+        # (це спрощений підхід; у реальному проекті можна використовувати переклад API)
+        ukrainian_related_trends = []
+        for trend in unique_trends:
+            # Додаємо оригінальний тренд
+            ukrainian_related_trends.append(trend)
+            
+            # Перевіряємо, чи тренд схожий на українське слово (спрощений підхід)
+            if not self._is_likely_ukrainian(trend) and len(trend.split()) <= 2:
+                # Додаємо варіанти з питальними словами
+                ukrainian_related_trends.append(f"як {trend}")
+                ukrainian_related_trends.append(f"що таке {trend}")
+                ukrainian_related_trends.append(f"де купити {trend}")
+        
+        # Перемішуємо список, щоб не всі аналогічні конструкції йшли поспіль
+        random.shuffle(ukrainian_related_trends)
+        
+        # Обмеження до заданої кількості
+        result = ukrainian_related_trends[:count] if len(ukrainian_related_trends) > count else ukrainian_related_trends
+        logger.info(f"Повернено {len(result)} трендових запитів")
+        
+        return result
+    
+    def _is_likely_ukrainian(self, text):
+        """
+        Спрощена перевірка, чи текст схожий на українську мову
+        
+        :param text: текст для перевірки
+        :return: True якщо схожий на українську, False інакше
+        """
+        # Українські символи (спрощений підхід)
+        ukrainian_chars = set('абвгґдеєжзиіїйклмнопрстуфхцчшщьюяАБВГҐДЕЄЖЗИІЇЙКЛМНОПРСТУФХЦЧШЩЬЮЯ')
+        
+        # Якщо текст містить українські символи, вважаємо його українським
+        text_chars = set(text.lower())
+        return bool(text_chars.intersection(ukrainian_chars))
+    
+    def _scrape_google_trends_page(self):
+        """
+        Спроба скрапінгу Google Trends веб-сторінки для отримання трендів
+        
+        :return: список трендів або порожній список в разі невдачі
+        """
+        trends = []
+        
+        for url in self.scraping_sources:
+            try:
+                # Додаємо User-Agent, щоб імітувати звичайний браузер
+                headers = {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+                }
+                
+                # Робимо запит
+                response = requests.get(url, headers=headers, timeout=5)
+                
+                # Перевіряємо статус відповіді
+                if response.status_code == 200:
+                    # Парсимо HTML
+                    soup = BeautifulSoup(response.text, 'html.parser')
+                    
+                    # Шукаємо тренди в HTML структурі
+                    # Примітка: цей селектор може змінитися, якщо Google змінить структуру сторінки
+                    trend_elements = soup.select('div.feed-item-header')
+                    
+                    for element in trend_elements:
+                        trend_text = element.text.strip()
+                        if trend_text:
+                            trends.append(trend_text)
+                    
+                    # Якщо знайшли тренди, виходимо з циклу
+                    if trends:
+                        break
+            except Exception as e:
+                logger.warning(f"Помилка при скрапінгу {url}: {str(e)}")
+        
+        # Додатковий метод: якщо скрапінг не працює, спробуємо проаналізувати українські новинні сайти
+        if not trends:
+            try:
+                # Список українських новинних сайтів
+                news_sites = [
+                    "https://www.pravda.com.ua/",
+                    "https://www.unian.ua/",
+                    "https://tsn.ua/"
+                ]
+                
+                for site in news_sites:
+                    try:
+                        headers = {
+                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+                        }
+                        
+                        response = requests.get(site, headers=headers, timeout=5)
+                        
+                        if response.status_code == 200:
+                            # Парсимо HTML
+                            soup = BeautifulSoup(response.text, 'html.parser')
+                            
+                            # Шукаємо заголовки новин
+                            headlines = soup.find_all(['h1', 'h2', 'h3', 'h4'])
+                            
+                            for headline in headlines:
+                                text = headline.text.strip()
+                                if text and len(text) > 5 and len(text) < 50:  # Фільтруємо занадто короткі або довгі
+                                    # Перетворюємо заголовок новини у пошуковий запит
+                                    # Видаляємо зайві символи і обмежуємо довжину
+                                    clean_text = re.sub(r'[^\w\s]', '', text)
+                                    clean_text = clean_text.strip()
+                                    
+                                    if clean_text:
+                                        trends.append(clean_text)
+                            
+                            # Якщо знайшли достатньо, виходимо з циклу
+                            if len(trends) >= 20:
+                                break
+                    except Exception as e:
+                        logger.warning(f"Помилка при скрапінгу {site}: {str(e)}")
+            except Exception as e:
+                logger.warning(f"Помилка при скрапінгу новинних сайтів: {str(e)}")
+        
+        return trends[:20]  # Обмежуємо кількість трендів
+    
     @retry(tries=3, delay=2, backoff=2)
     def get_related_queries(self, keyword):
         """
@@ -219,12 +362,14 @@ class GoogleTrendsClient:
             
             logger.info(f"Отримано {len(top_queries)} топових та {len(rising_queries)} зростаючих запитів")
             
-            return {
-                'top': top_queries,
-                'rising': rising_queries
-            }
-        except Exception as e:
-            logger.error(f"Помилка при отриманні пов'язаних запитів: {str(e)}")
+            # Якщо запити успішно отримані - повертаємо їх
+            if top_queries or rising_queries:
+                return {
+                    'top': top_queries,
+                    'rising': rising_queries
+                }
+            
+            # Якщо запити не отримані, генеруємо фіктивні дані
             # У випадку помилки повертаємо фіктивні дані для покращення генерації
             # Створюємо фіктивні пов'язані запити на основі питальної конструкції
             if keyword.startswith("як"):
@@ -347,6 +492,10 @@ class GoogleTrendsClient:
                         f"{keyword} відео"
                     ]
                 }
+        except Exception as e:
+            logger.error(f"Помилка при отриманні пов'язаних запитів: {str(e)}")
+            # У випадку помилки повертаємо пусті списки
+            return {'top': [], 'rising': []}
 
 
 class TrendAnalyzer:

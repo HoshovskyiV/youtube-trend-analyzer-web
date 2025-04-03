@@ -62,21 +62,11 @@ class GoogleTrendsClient:
         # Список для зберігання трендів, які ми спробуємо отримати з різних джерел
         all_trends = []
         
-        # 1. Спочатку спробуємо офіційний метод PyTrends для України
-        try:
-            logger.info(f"Спроба #1: Запит трендових пошуків через PyTrends для України")
-            trending_searches_df = self.pytrends.trending_searches(pn='ukraine')
-            ukrainian_trends = trending_searches_df[0].tolist()
-            logger.info(f"PyTrends повернув {len(ukrainian_trends)} українських трендів")
-            all_trends.extend(ukrainian_trends)
-        except Exception as e:
-            logger.warning(f"Не вдалося отримати тренди для України через PyTrends: {str(e)}")
-        
-        # 2. Спробуємо отримати тренди для підтримуваних країн і відфільтрувати українські
+        # 1. Спробуємо отримати тренди для підтримуваних країн і відфільтрувати українські
         if len(all_trends) < count:
             for country in self.supported_countries:
                 try:
-                    logger.info(f"Спроба #2: Запит трендових пошуків через PyTrends для {country}")
+                    logger.info(f"Спроба #1: Запит трендових пошуків через PyTrends для {country}")
                     trending_searches_df = self.pytrends.trending_searches(pn=country)
                     trends = trending_searches_df[0].tolist()
                     
@@ -90,10 +80,10 @@ class GoogleTrendsClient:
                 except Exception as e:
                     logger.warning(f"Не вдалося отримати тренди для {country}: {str(e)}")
         
-        # 3. Спробуємо скрапінг Google Trends веб-сторінки для України
+        # 2. Спробуємо скрапінг Google Trends веб-сторінки для України
         if len(all_trends) < count:
             try:
-                logger.info(f"Спроба #3: Скрапінг Google Trends веб-сторінки для України")
+                logger.info(f"Спроба #2: Скрапінг Google Trends веб-сторінки для України")
                 scraped_trends = self._scrape_google_trends_page()
                 if scraped_trends:
                     logger.info(f"Скрапінг повернув {len(scraped_trends)} трендів")
@@ -101,9 +91,9 @@ class GoogleTrendsClient:
             except Exception as e:
                 logger.warning(f"Помилка при скрапінгу Google Trends: {str(e)}")
         
-        # 4. Якщо все ще недостатньо трендів, додаємо фіктивні дані на основі питальних конструкцій
+        # 3. Якщо все ще недостатньо трендів, додаємо фіктивні дані на основі питальних конструкцій
         if len(all_trends) < count:
-            logger.info(f"Спроба #4: Використовуємо запасний список питальних конструкцій")
+            logger.info(f"Спроба #3: Використовуємо запасний список питальних конструкцій")
             fallback_trends = [
                 # Базові питальні слова
                 "як",

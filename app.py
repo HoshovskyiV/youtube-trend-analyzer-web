@@ -97,13 +97,13 @@ class GoogleTrendsClient:
         try:
             logger.info("Отримання трендів через SerpAPI")
             
-            # Параметри для запиту до SerpAPI (Google Trends API)
+            # Параметри для запиту до SerpAPI - Daily Trending Searches
             params = {
                 "engine": "google_trends",
                 "api_key": self.api_key,
-                "data_type": "TIMESERIES",  # Тип даних: TIMESERIES, RELATED_QUERIES, тощо
-                "geo": self.geo,            # Код країни: UA для України
-                "hl": self.language         # Мова інтерфейсу: uk для української
+                "data_type": "TRENDING_SEARCHES",  # Trending Searches
+                "geo": self.geo,
+                "hl": self.language
             }
             
             # Запит до SerpAPI
@@ -113,32 +113,10 @@ class GoogleTrendsClient:
             logger.info(f"Отримано відповідь від SerpAPI: {results.keys()}")
             
             # Обробка результатів
-            if "interest_over_time" in results:
-                # Якщо отримали interest_over_time, витягуємо теми
-                data = results["interest_over_time"]
-                if "timeline_data" in data:
-                    for item in data["timeline_data"]:
-                        if "values" in item:
-                            for value in item["values"]:
-                                if "query" in value and value["query"]:
-                                    all_trends.append(value["query"])
-            
-            # Спробуємо отримати топ-запити
-            params = {
-                "engine": "google_trends",
-                "api_key": self.api_key,
-                "data_type": "TRENDING_SEARCHES",  # Тип даних: TRENDING_SEARCHES
-                "geo": self.geo,
-                "hl": self.language
-            }
-            
-            search = GoogleSearch(params)
-            results = search.get_dict()
-            
             if "trending_searches" in results:
                 trending = results["trending_searches"]
                 for search_item in trending:
-                    if "title" in search_item:
+                    if "title" in search_item and "query" in search_item["title"]:
                         all_trends.append(search_item["title"]["query"])
             
             # Якщо не вдалося отримати тренди, спробуємо ще один варіант запиту
@@ -146,20 +124,20 @@ class GoogleTrendsClient:
                 params = {
                     "engine": "google_trends",
                     "api_key": self.api_key,
-                    "data_type": "RELATED_TOPICS",
+                    "data_type": "REAL_TIME_TRENDS",  # Real-time Trends
                     "geo": self.geo,
-                    "hl": self.language
+                    "hl": self.language,
+                    "category": "all"
                 }
                 
                 search = GoogleSearch(params)
                 results = search.get_dict()
                 
-                if "related_topics" in results:
-                    topics = results["related_topics"]
-                    if "rising" in topics:
-                        for topic in topics["rising"]:
-                            if "topic_title" in topic:
-                                all_trends.append(topic["topic_title"])
+                if "real_time_trends" in results:
+                    trends = results["real_time_trends"]
+                    for trend in trends:
+                        if "title" in trend:
+                            all_trends.append(trend["title"])
             
             # Додатково спробуємо отримати тренди для подібних регіонів, якщо українських недостатньо
             if len(all_trends) < count / 2:
@@ -183,7 +161,7 @@ class GoogleTrendsClient:
                     if "trending_searches" in results:
                         trending = results["trending_searches"]
                         for search_item in trending:
-                            if "title" in search_item:
+                            if "title" in search_item and "query" in search_item["title"]:
                                 all_trends.append(search_item["title"]["query"])
             
             # Видаляємо дублікати
@@ -223,7 +201,8 @@ class GoogleTrendsClient:
                 "data_type": "RELATED_QUERIES",
                 "geo": self.geo,
                 "hl": self.language,
-                "q": keyword  # Ключове слово для пошуку
+                "q": keyword,  # Ключове слово для пошуку
+                "date": "today 12-m"  # За останній рік
             }
             
             # Запит до SerpAPI
@@ -251,11 +230,17 @@ class GoogleTrendsClient:
             
             logger.info(f"Знайдено {len(top_queries)} топових та {len(rising_queries)} зростаючих запитів")
             
+            # Логуємо приклади запитів
+            if top_queries:
+                logger.info(f"Пов'язані топові запити: {top_queries[:5]}")
+            if rising_queries:
+                logger.info(f"Пов'язані зростаючі запити: {rising_queries[:5]}")
+            
             # Якщо знайшли достатньо пов'язаних запитів, повертаємо їх
             if top_queries or rising_queries:
                 return {
-                    'top': top_queries[:5],  # Обмежуємо до 5 результатів
-                    'rising': rising_queries[:5]
+                    'top': top_queries[:10],  # Збільшуємо число запитів для кращого контексту
+                    'rising': rising_queries[:10]
                 }
             
             # Якщо не знайшли через SerpAPI, генеруємо пов'язані запити на основі ключового слова
@@ -481,22 +466,39 @@ class TrendAnalyzer:
             # Логуємо тренди для аналізу
             logger.info(f"Поточні тренди: {trends}")
             
-            trends_str = "Поточні тренди в Україні:\n- " + "\n- ".join(trends[:5])
-            
             # Отримання пов'язаних запитів для збагачення контексту
             related = self.get_related_queries(keyword)
-            related_str = ""
             
+            # Формуємо список ключових запитів для генерації ідей з пріоритетом на реальні пов'язані запити
+            key_queries = []
+            
+            # Додаємо зростаючі запити (найвищий пріоритет)
+            if related['rising']:
+                key_queries.extend(related['rising'])
+            
+            # Додаємо топові запити
+            if related['top']:
+                key_queries.extend(related['top'])
+                
+            # Якщо запитів недостатньо, додаємо загальні тренди
+            if len(key_queries) < 5 and trends:
+                key_queries.extend([trend for trend in trends if keyword.lower() in trend.lower()])
+            
+            # Формуємо текст з ключовими запитами для промпту
+            if key_queries:
+                key_queries_text = "\n".join([f"- {query}" for query in key_queries[:10]])
+                key_trends_str = f"Ключові пошукові запити, які необхідно використовувати для генерації ідей:\n{key_queries_text}\n"
+            else:
+                key_trends_str = ""
+            
+            # Формуємо текст з пов'язаними запитами
+            related_str = ""
             if related['top'] or related['rising']:
-                related_str = "Пов'язані запити:\n"
+                related_str = "Додаткові пов'язані запити:\n"
                 if related['top']:
-                    related_str += "Топові: " + ", ".join(related['top'][:5]) + "\n"
-                    # Логуємо для аналізу
-                    logger.info(f"Пов'язані топові запити: {related['top'][:5]}")
+                    related_str += "Топові: " + ", ".join(related['top'][:8]) + "\n"
                 if related['rising']:
-                    related_str += "Зростаючі: " + ", ".join(related['rising'][:5]) + "\n"
-                    # Логуємо для аналізу
-                    logger.info(f"Пов'язані зростаючі запити: {related['rising'][:5]}")
+                    related_str += "Зростаючі: " + ", ".join(related['rising'][:8]) + "\n"
             
             # Формуємо промпт для Gemini з урахуванням категорії, якщо вона вказана
             category_str = f"в категорії {category}" if category else ""
@@ -541,18 +543,22 @@ class TrendAnalyzer:
             """
             
             prompt = f"""
-            Ти - аналітик контенту для українських YouTube блогерів. Створи {count} детальних ідей для YouTube відео українською мовою на основі РЕАЛЬНОГО пошукового запиту/тренду: "{keyword}" {category_str}.
+            Ти - аналітик контенту для українських YouTube блогерів. Створи {count} детальних ідей для YouTube відео українською мовою на основі конкретного запиту: "{keyword}" {category_str}.
             
-            {trends_str}
+            {key_trends_str}
             
             {related_str}
             
             {current_context}
             
-            ДУЖЕ ВАЖЛИВО: Не вигадуй нові теми! Створи ідеї виключно на основі конкретного пошукового запиту "{keyword}" та пов'язаних з ним запитів, які наведені вище. Ідеї повинні відповідати на конкретні запитання/потреби користувачів, які шукають інформацію за цим запитом.
+            ДУЖЕ ВАЖЛИВО: Створи ідеї ВИКЛЮЧНО на основі конкретних реальних пошукових запитів, які наведені вище! Не вигадуй нові теми, а використовуй точні формулювання з ключових пошукових запитів.
+            
+            Наприклад, якщо наведені такі запити як "як зробити скрін на компі" або "як зробити фото ші", то саме для них треба створити ідеї відео, а не для загальних тем.
+            
+            Для кожної ідеї обов'язково використовуй один з конкретних наведених запитів як основу заголовка відео!
             
             Для кожної ідеї обов'язково надай:
-            1. Привабливий заголовок для відео (до 60 символів), який обов'язково включає оригінальний пошуковий запит: "{keyword}"
+            1. Привабливий заголовок для відео (до 60 символів), який ОБОВ'ЯЗКОВО включає ТОЧНЕ формулювання одного з наведених пошукових запитів
             2. Короткий опис (до 160 символів), що добре оптимізований для SEO
             3. 5-7 ключових моментів для сценарію, з практичною користю для глядача
             4. Список із 5-8 ключових слів українською мовою для оптимізації SEO (включно з оригінальним запитом)
@@ -560,7 +566,7 @@ class TrendAnalyzer:
             
             Формат відповіді:
             
-            ## Ідея 1: [ЗАГОЛОВОК ОБОВ'ЯЗКОВО ВКЛЮЧАЄ "{keyword}"]
+            ## Ідея 1: [ЗАГОЛОВОК ВКЛЮЧАЄ ТОЧНИЙ ПОШУКОВИЙ ЗАПИТ]
             
             **Опис**: [ОПИС]
             
@@ -575,7 +581,7 @@ class TrendAnalyzer:
             
             ---
             
-            Переконайся, що ідеї дуже конкретні, актуальні та практичні. Відповідай на реальні потреби українців у 2025 році. Фокусуйся на практичній користі, а не загальних темах.
+            Переконайся, що ідеї дуже конкретні, актуальні та практичні. Відповідай на реальні потреби українців у 2025 році.
             """
             
             # Використовуємо SDK для генерації відповіді
